@@ -66,6 +66,8 @@
     "postinstall": "patch-package",
     "query:posts": "cd ghost/core/core/server/data/tinybird/scripts && ./query-posts.sh",
     "query:members": "cd ghost/core/core/server/data/tinybird/scripts && ./query-members.sh",
+    "start": "node ghost/core/index.js",
+    "dev": "yarn workspace ghost-core dev",
     "generate:analytics": "cd ghost/core && node core/server/data/tinybird/scripts/analytics-generator.js"
   },
   "resolutions": {
