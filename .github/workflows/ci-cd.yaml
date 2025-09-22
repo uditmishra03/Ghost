@@ -8,6 +8,7 @@ on:
 concurrency:
   group: ci-cd-${{ github.ref }}
   cancel-in-progress: true
+
 env:
   APP_NAME: ghost-app
   AWS_REGION: us-east-1
@@ -55,7 +56,7 @@ jobs:
 
   build_push:
     name: Build & Push Image
-    needs: sonarqube
+    needs: [prepare, sonarqube]   # <-- ensure IMAGE_TAG is available
     runs-on: [self-hosted, devops-runner]
     permissions:
       id-token: write
@@ -65,21 +66,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-        #      - name: Configure AWS Credentials
-        # uses: aws-actions/configure-aws-credentials@v4
-        #with:
-        #  aws-region: ${{ env.AWS_REGION }}
-        #  role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+      # If you use OIDC to auth to AWS from the runner, enable this step and set the secret.
+      - name: Configure AWS Credentials (OIDC)
+        if: ${{ secrets.AWS_OIDC_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and Push with Cache
+      - name: Set REPO_URI
+        run: echo "REPO_URI=${{ steps.login-ecr.outputs.registry }}/${ECR_REPO}" >> $GITHUB_ENV
+
+      - name: Sanity — show tag (must not be empty)
         run: |
-          REPO_URI="${{ steps.login-ecr.outputs.registry }}/${ECR_REPO}"
-          docker buildx create --name ci-builder --use --driver docker-container || true
-          docker buildx inspect --bootstrap
+          echo "IMAGE_TAG=${IMAGE_TAG}"
+          test -n "${IMAGE_TAG}" || { echo "IMAGE_TAG is empty"; exit 1; }
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Carry forward :previous (optional but recommended)
+        run: |
+          docker pull "${REPO_URI}:latest" || true
+          docker tag  "${REPO_URI}:latest" "${REPO_URI}:previous" || true
+          docker push "${REPO_URI}:previous" || true
+
+      - name: Build and Push with Cache (ECR registry cache)
+        run: |
           docker buildx build \
             --file .docker/Dockerfile \
             --target production \
@@ -100,14 +117,28 @@ jobs:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
           STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
         run: |
           echo "${STAGING_SSH_KEY}" | tr -d '\r' > key_staging.pem
           chmod 600 key_staging.pem
           ssh -o StrictHostKeyChecking=no -i key_staging.pem ${STAGING_SSH_USER}@${STAGING_HOST} <<'EOS'
-          set -e
+          set -euo pipefail
+          # Ensure AWS CLI exists (quick install if missing)
+          if ! command -v aws >/dev/null 2>&1; then
+            curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip -q awscliv2.zip
+            sudo ./aws/install
+          fi
+          # ECR login on the remote host
+          REGION="${AWS_REGION}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+          aws ecr get-login-password --region "$REGION" | \
+            docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
           cd ~/ghost
           docker compose -f docker-compose.staging.yml pull
           docker compose -f docker-compose.staging.yml up -d
+          docker image prune -f
           EOS
 
   smoke_test_staging:
@@ -137,13 +168,24 @@ jobs:
           PROD_HOST: ${{ secrets.PROD_HOST }}
           PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
           PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
         run: |
           echo "${PROD_SSH_KEY}" | tr -d '\r' > key_prod.pem
           chmod 600 key_prod.pem
           ssh -o StrictHostKeyChecking=no -i key_prod.pem ${PROD_SSH_USER}@${PROD_HOST} <<'EOS'
-          set -e
+          set -euo pipefail
+          if ! command -v aws >/dev/null 2>&1; then
+            curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip -q awscliv2.zip
+            sudo ./aws/install
+          fi
+          REGION="${AWS_REGION}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+          aws ecr get-login-password --region "$REGION" | \
+            docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
           cd ~/ghost
           docker compose -f docker-compose.production.yml pull
           docker compose -f docker-compose.production.yml up -d
+          docker image prune -f
           EOS
-
