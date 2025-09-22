@@ -51,6 +51,9 @@ jobs:
           sonarsource/sonar-scanner-cli:latest \
           -Dsonar.projectKey=ghost-app \
           -Dsonar.sources=. \
+          -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/** \
+          -Dsonar.scanner.skipUnchanged=true \
+          -Dsonar.scanner.skipUnchangedFiles=true \
           -Dsonar.host.url="$SONAR_HOST_URL" \
           -Dsonar.login="$SONAR_TOKEN"
 
