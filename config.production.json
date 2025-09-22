@@ -1,0 +1,13 @@
+{
+  "url": "http://0.0.0.0",
+  "database": {
+    "client": "sqlite3",
+    "connection": {
+      "filename": "/var/lib/ghost/content/data/ghost.db"
+    }
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 2368
+  }
+}
