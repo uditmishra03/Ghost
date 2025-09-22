@@ -31,20 +31,36 @@ jobs:
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "image_tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-  sonarqube:
-    name: SonarQube Analysis
-    needs: prepare
-    runs-on: [self-hosted, devops-runner]
-    steps:
-      - uses: actions/checkout@v4
+ sonarqube:
+   name: SonarQube Analysis
+   needs: prepare
+   runs-on: [self-hosted, devops-runner]
+   steps:
+    - uses: actions/checkout@v4
+    - name: Check SonarQube connectivity
+      env:
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}   
+        SONAR_TOKEN:     ${{ secrets.SONAR_TOKEN }}     
+      run: |
+        set -e
+        echo "Pinging $SONAR_HOST_URL ..."
+        curl -sf "$SONAR_HOST_URL/api/system/health" >/dev/null
+        # Auth check against the API used by recent scanners
+        curl -sf -u "${SONAR_TOKEN}:" "$SONAR_HOST_URL/api/v2/analysis/version" >/dev/null
+        echo "SonarQube reachable and token valid."
 
-      - name: Run SonarQube Scan
-        run: |
-          docker run --rm \
-            -e SONAR_HOST_URL="${SONAR_HOST_URL}" \
-            -e SONAR_LOGIN="${SONAR_TOKEN}" \
-            -v "${PWD}:/usr/src" \
-            sonarsource/sonar-scanner-cli:latest
+    - name: Run SonarQube Scan
+      env:
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        SONAR_TOKEN:     ${{ secrets.SONAR_TOKEN }}
+      run: |
+        docker run --rm \
+          -e SONAR_HOST_URL \
+          -e SONAR_TOKEN \
+          -v "${PWD}:/usr/src" \
+          sonarsource/sonar-scanner-cli:latest \
+          -Dsonar.projectVersion=${GITHUB_SHA} \
+          -Dsonar.branch.name=${GITHUB_REF_NAME}
 
   build_push:
     name: Build & Push Image
