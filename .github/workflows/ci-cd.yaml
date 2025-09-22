@@ -92,7 +92,6 @@ jobs:
         docker buildx inspect --bootstrap
         docker buildx build \
           --file .docker/Dockerfile \
-          --target production \
           --cache-from=type=registry,ref=${REPO_URI}:buildcache \
           --cache-to=type=registry,ref=${REPO_URI}:buildcache,mode=max \
           -t ${REPO_URI}:latest \
