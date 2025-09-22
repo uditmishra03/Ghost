@@ -161,7 +161,7 @@ jobs:
           PROD_HOST: ${{ secrets.PROD_HOST }}
           PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
           PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
-          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_REGION: "us-east-1"
         run: |
           echo "${PROD_SSH_KEY}" | tr -d '\r' > key_prod.pem
           chmod 600 key_prod.pem
