@@ -18,16 +18,16 @@ jobs:
           if [ "${{ github.event.inputs.environment }}" = "staging" ]; then
             echo "HOST=${{ secrets.STAGING_HOST }}" >> $GITHUB_ENV
             echo "SSH_USER=${{ secrets.STAGING_SSH_USER }}" >> $GITHUB_ENV
-            echo "SSH_KEY=${{ secrets.STAGING_SSH_KEY }}" >> $GITHUB_ENV
             echo "COMPOSE_FILE=docker-compose.staging.yml" >> $GITHUB_ENV
           else
             echo "HOST=${{ secrets.PROD_HOST }}" >> $GITHUB_ENV
             echo "SSH_USER=${{ secrets.PROD_SSH_USER }}" >> $GITHUB_ENV
-            echo "SSH_KEY=${{ secrets.PROD_SSH_KEY }}" >> $GITHUB_ENV
             echo "COMPOSE_FILE=docker-compose.production.yml" >> $GITHUB_ENV
           fi
 
       - name: Roll back to previous image
+        env:
+          SSH_KEY: ${{ github.event.inputs.environment == 'staging' && secrets.STAGING_SSH_KEY || secrets.PROD_SSH_KEY }}
         run: |
           echo "${SSH_KEY}" | tr -d '\r' > rollback_key.pem
           chmod 600 rollback_key.pem
