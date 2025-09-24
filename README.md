@@ -32,73 +32,402 @@
 
 &nbsp;
 
-> [!NOTE]
-> Love open source? We're hiring! Ghost is looking staff engineers to [join the team](https://careers.ghost.org) and work with us full-time
 
 <a href="https://ghost.org/"><img src="https://user-images.githubusercontent.com/353959/169805900-66be5b89-0859-4816-8da9-528ed7534704.png" alt="Fiercely independent, professional publishing. Ghost is the most popular open source, headless Node.js CMS which already works with all the tools you know and love." /></a>
 
 &nbsp;
-
-<a href="https://ghost.org/pricing/#gh-light-mode-only" target="_blank"><img src="https://user-images.githubusercontent.com/65487235/157849437-9b8fcc48-1920-4b26-a1e8-5806db0e6bb9.png" alt="Ghost(Pro)" width="165px" /></a>
-<a href="https://ghost.org/pricing/#gh-dark-mode-only" target="_blank"><img src="https://user-images.githubusercontent.com/65487235/157849438-79889b04-b7b6-4ba7-8de6-4c1e4b4e16a5.png" alt="Ghost(Pro)" width="165px" /></a>
-
-The easiest way to get a production instance deployed is with our official **[Ghost(Pro)](https://ghost.org/pricing/)** managed service. It takes about 2 minutes to launch a new site with worldwide CDN, backups, security and maintenance all done for you.
-
-For most people this ends up being the best value option because of [how much time it saves](https://ghost.org/docs/hosting/) — and 100% of revenue goes to the Ghost Foundation; funding the maintenance and further development of the project itself. So you’ll be supporting open source software *and* getting a great service!
-
 &nbsp;
 
-# Quickstart install
+# Problem Statement
 
-If you want to run your own instance of Ghost, in most cases the best way is to use our **CLI tool**
+Deploy and operate a **production-grade Ghost blogging platform** across staging and production environments with strong DevOps practices.
 
+## Requirements
+
+- **CI:** SonarQube for code quality checks.
+- **CD:** Build and push Docker images to AWS ECR.
+- **Deployments:** Docker Compose on remote EC2 servers.
+- **Extras:** Smoke testing, monitoring, alerting, and rollback mechanism.
+
+---
+
+# Ghost CI/CD Setup
+
+## Server Prep
+
+- Provision staging, production, and DevOps servers.
+- Install Docker + Docker Compose.
+- Create working directory: `~/ghost`
+
+## App Config
+
+- Add `config.production.json`(code given below)
+- Fix Ghost content folder permissions (code given below)
+
+## Docker Compose
+
+- Create:
+  - `deploy/docker-compose.staging.yml`
+  - `deploy/docker-compose.production.yml`
+- Define Ghost + MySQL + volumes.
+- SCP compose files from repo → servers.
+
+## ECR & Image Build
+
+- Setup ECR repo: `ghost-app`
+- Build using Docker Buildx with caching.
+- Push:
+  - `:latest` (replace this with the version, don't use latest in production)
+  - commit tag
+  - `:previous` (for rollback)
+
+## SonarQube
+
+- Configure host URL and token.
+- Scan only changed files.
+- Exclude `node_modules`, `dist`, `coverage`.
+
+## Secrets
+
+- GitHub secrets for:
+  - staging/prod hosts
+  - users
+  - SSH keys
+- SonarQube credentials.
+- Staging health URL.
+
+## Deployment
+
+- **Staging:** SCP compose → pull + `up -d`
+- **Smoke test:** `curl` health URL until HTTP 200.
+- **Production:** Gated with manual approval.
+
+## Rollback
+
+- Separate rollback workflow.
+- Input: staging or production.
+- Pull `:previous`, retag `:latest`, force recreate.
+
+## Monitoring
+
+- **Prometheus** + **Blackbox Exporter**.
+- Probes staging & production URLs.
+- Alerts routed to **Slack**.
+
+---
+
+# Breaking the Problem
+
+1. **Prepare Metadata:** Get commit SHA, tags, versions.
+2. **Quality Gate:** Analyze via SonarQube, block if critical.
+3. **Build & Push:** Docker image to ECR.
+4. **Staging Deploy:** Use Compose, SCP, deploy.
+5. **Smoke Test:** Health check.
+6. **Production Deploy:** Post-approval only.
+7. **Rollback:** Use `:previous` tag.
+8. **Monitoring:** Blackbox, Slack alerts.
+
+---
+
+# Installations
+
+## Docker + Buildx
+
+```bash
+sudo apt-get update -y
+sudo apt-get install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update -y
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+newgrp docker
 ```
-npm install ghost-cli -g
+
+## AWS CLI
+
+```bash
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+aws --version
 ```
 
-&nbsp;
+## SonarQube (via Docker Compose)
 
-Then, if installing locally add the `local` flag to get up and running in under a minute - [Local install docs](https://ghost.org/docs/install/local/)
+```bash
+mkdir -p ~/sonarqube/{data,extensions,logs}
+cat > ~/sonarqube/docker-compose.yml <<'YML'
+services:
+  sonarqube:
+    image: sonarqube:community
+    container_name: sonarqube
+    ports:
+      - "9000:9000"
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    volumes:
+      - ./data:/opt/sonarqube/data
+      - ./extensions:/opt/sonarqube/extensions
+      - ./logs:/opt/sonarqube/logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9000/about"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+YML
 
+sudo chown -R 1000:1000 ~/sonarqube/data ~/sonarqube/extensions ~/sonarqube/logs
+docker compose -f ~/sonarqube/docker-compose.yml up -d
 ```
-ghost install local
+
+---
+
+# Self Hosted GitHub Runner
+
+```bash
+sudo useradd -m -s /bin/bash github
+sudo usermod -aG docker github         
+sudo su - github
+
+mkdir actions-runner && cd actions-runner
+curl -o actions-runner-linux-x64-2.328.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.328.0/actions-runner-linux-x64-2.328.0.tar.gz
+echo "01066fad3a2893e63e6ca880ae3a1fad5bf9329d60e77ee15f2b97c148c3cd4e  actions-runner-linux-x64-2.328.0.tar.gz" | shasum -a 256 -c
+tar xzf ./actions-runner-linux-x64-2.328.0.tar.gz
+./config.sh --url https://github.com/<your-org>/<your-repo> --token <REPO_REGISTRATION_TOKEN>
 ```
 
-&nbsp;
+---
 
-or on a server run the full install, including automatic SSL setup using LetsEncrypt - [Production install docs](https://ghost.org/docs/install/ubuntu/)
+# Ghost App Setup on Servers
 
+```bash
+mkdir -p ~/ghost && cd ~/ghost
+mkdir content
+sudo chown -R 1000:1000 ./content
+chmod -R 755 ./content
 ```
-ghost install
+
+## config.production.json (Staging)
+
+```json
+{
+  "url": "http://<staging_host>",
+  "server": { "host": "0.0.0.0", "port": 2368 },
+  "database": {
+    "client": "mysql",
+    "connection": {
+      "host": "ghost-mysql",
+      "port": 3306,
+      "user": "ghost",
+      "password": "ghostpass", #this is a sample, pls make the password more complex or use secrets manager
+      "database": "ghostdb"
+    }
+  },
+  "paths": { "contentPath": "/var/lib/ghost/content" }
+}
 ```
 
-&nbsp;
+## config.production.json (Production)
 
-Check out our [official documentation](https://ghost.org/docs/) for more information about our [recommended hosting stack](https://ghost.org/docs/hosting/) & properly [upgrading Ghost](https://ghost.org/docs/update/), plus everything you need to develop your own Ghost [themes](https://ghost.org/docs/themes/) or work with [our API](https://ghost.org/docs/content-api/).
+```json
+{
+  "url": "http://<production_host>",
+  "server": { "host": "0.0.0.0", "port": 2368 },
+  "database": {
+    "client": "mysql",
+    "connection": {
+      "host": "ghost-mysql",
+      "port": 3306,
+      "user": "ghost",
+      "password": "ghostpass", #this is a sample, pls make the password more complex or use secrets manager
+      "database": "ghostdb"
+    }
+  },
+  "paths": { "contentPath": "/var/lib/ghost/content" }
+}
+```
 
-### Contributors & advanced developers
+---
 
-For anyone wishing to contribute to Ghost or to hack/customize core files we recommend following our full development setup guides: [Contributor guide](https://ghost.org/docs/contributing/) • [Developer setup](https://ghost.org/docs/install/source/)
+# Monitoring Stack
 
-&nbsp;
+## Prometheus
 
-# Ghost sponsors
+```bash
+curl -LO https://github.com/prometheus/prometheus/releases/download/v2.54.1/prometheus-2.54.1.linux-amd64.tar.gz
+tar -xvf prometheus-2.54.1.linux-amd64.tar.gz
+sudo mv prometheus-2.54.1.linux-amd64 /usr/local/prometheus
+```
+## prometheus.yml
 
-A big thanks to our sponsors and partners who make Ghost possible. If you're interested in sponsoring Ghost and supporting the project, please check out our profile on [GitHub sponsors](https://github.com/sponsors/TryGhost) :heart:
+```yaml
+global:
+  scrape_interval: 15s
 
-**[DigitalOcean](https://m.do.co/c/9ff29836d717)** • **[Fastly](https://www.fastly.com/)** • **[Tinybird](https://tbrd.co/ghost)**
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["localhost:9093"]
 
-&nbsp;
+rule_files:
+  - "alert-rules.yml"
 
-# Getting help
+scrape_configs:
+  - job_name: "ghost-uptime"
+    metrics_path: /
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://<staging host>    
+          - http://<production host>   
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115
+```
 
-Everyone can get help and support from a large community of developers over on the [Ghost forum](https://forum.ghost.org/). **Ghost(Pro)** customers have access to 24/7 email support.
 
-To stay up to date with all the latest news and product updates, make sure you [subscribe to our changelog newsletter](https://ghost.org/changelog/) — or follow us [on Twitter](https://twitter.com/Ghost), if you prefer your updates bite-sized and facetious. :saxophone::turtle:
+**Systemd Service**
 
-&nbsp;
+```ini
+[Unit]
+Description=Prometheus
+After=network.target
 
-# Copyright & license
+[Service]
+User=root
+ExecStart=/usr/local/prometheus/prometheus \
+  --config.file=/usr/local/prometheus/prometheus.yml \
+  --storage.tsdb.path=/usr/local/prometheus/data
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Blackbox Exporter
+
+```bash
+curl -LO https://github.com/prometheus/blackbox_exporter/releases/download/v0.25.0/blackbox_exporter-0.25.0.linux-amd64.tar.gz
+tar -xvf blackbox_exporter-0.25.0.linux-amd64.tar.gz
+sudo mv blackbox_exporter-0.25.0.linux-amd64 /usr/local/blackbox_exporter
+```
+
+## blackbox.yml
+
+```yaml
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: [ "HTTP/1.1", "HTTP/2" ]
+      valid_status_codes: ['2xx']
+      method: GET
+```
+
+**Systemd Service**
+
+```ini
+[Unit]
+Description=Blackbox Exporter
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/local/blackbox_exporter/blackbox_exporter \
+  --config.file=/usr/local/blackbox_exporter/blackbox.yml
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Alertmanager
+
+```bash
+curl -LO https://github.com/prometheus/alertmanager/releases/download/v0.27.0/alertmanager-0.27.0.linux-amd64.tar.gz
+tar -xvf alertmanager-0.27.0.linux-amd64.tar.gz
+sudo mv alertmanager-0.27.0.linux-amd64 /usr/local/alertmanager
+```
+## alertmanager.yml
+
+```yaml
+route:
+  receiver: "slack"
+
+receivers:
+  - name: "slack"
+    slack_configs:
+      - send_resolved: true
+        channel: "<slack channel name>"
+        username: "PrometheusBot"
+        api_url: "<slack channel webhook>"
+        text: >
+          *Alert:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+```
+
+**Systemd Service**
+
+```ini
+[Unit]
+Description=Alertmanager
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/local/alertmanager/alertmanager \
+  --config.file=/usr/local/alertmanager/alertmanager.yml \
+  --storage.path=/usr/local/alertmanager/data
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+# How to Improve Complexity Further
+
+## Deployment & Infrastructure
+
+- Add a Domain and HTTPS certs to the staging, production and sonarqube endpoints.
+- Migrate from Docker Compose to Kubernetes (EKS or Kind).
+- Use Infrastructure as Code (Terraform or Ansible).
+
+## CI/CD Pipeline Improvements
+
+- Blue-Green or Canary deployments.
+- Extend rollback automation to handle failed smoke tests.
+
+## Observability & Monitoring
+
+- Grafana Dashboards.
+- Centralized logging via ELK or Loki.
+- Create an escalation matrix for alerting (Alert -> L1 -> L2 -> L3)
+
+## Security
+
+- Use AWS Secrets Manager or Vault.
+- Sign Docker images 
+- Integrate Snyk for vulnerability scanning.
+
+## Performance & Resilience
+
+- Load testing via k6 or Locust as a pre-prod pipeline gate.
+
+
 
 Copyright (c) 2013-2025 Ghost Foundation - Released under the [MIT license](LICENSE).
 Ghost and the Ghost Logo are trademarks of Ghost Foundation Ltd. Please see our [trademark policy](https://ghost.org/trademark/) for info on acceptable usage.
