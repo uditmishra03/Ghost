@@ -13,7 +13,8 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass"]
+      test:
+        ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,7 +31,7 @@ services:
     volumes:
       - ./config.production.json:/var/lib/ghost/config.production.json:ro
       - ./content:/var/lib/ghost/content
-    user: "1000:1000"   # run as node user
+    user: "1000:1000" # run as node user
 
 volumes:
   mysql_data:
