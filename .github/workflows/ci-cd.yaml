@@ -98,7 +98,13 @@ jobs:
       run: |
         echo "${STAGING_SSH_KEY}" | tr -d '\r' > key_staging.pem
         chmod 600 key_staging.pem
+
+        # Create ghost directory on staging server
+        ssh -o StrictHostKeyChecking=no -i key_staging.pem ${STAGING_SSH_USER}@${STAGING_HOST} "mkdir -p ~/ghost"
+
+        # Copy required files to staging server
         scp -i key_staging.pem -o StrictHostKeyChecking=no deploy/docker-compose.staging.yml ${STAGING_SSH_USER}@${STAGING_HOST}:~/ghost/docker-compose.staging.yml
+        scp -i key_staging.pem -o StrictHostKeyChecking=no config.production.json ${STAGING_SSH_USER}@${STAGING_HOST}:~/ghost/config.production.json
         ssh -o StrictHostKeyChecking=no -i key_staging.pem ${STAGING_SSH_USER}@${STAGING_HOST} <<'EOS'
         set -euo pipefail
 
@@ -155,17 +161,21 @@ jobs:
         pwd
         ls -la
 
+        echo "Setting up Ghost content directory..."
+        mkdir -p content
+        sudo chown -R 1000:1000 content
+
         echo "Setting environment variables..."
         export AWS_ACCOUNT_ID="$ACCOUNT_ID"
 
         echo "Pulling images..."
-        docker compose -f docker-compose.staging.yml pull
+        docker-compose -f docker-compose.staging.yml pull
 
         echo "Starting containers..."
-        docker compose -f docker-compose.staging.yml up -d
+        docker-compose -f docker-compose.staging.yml up -d
 
         echo "Checking container status..."
-        docker compose -f docker-compose.staging.yml ps
+        docker-compose -f docker-compose.staging.yml ps
         docker ps -a
 
         echo "Cleaning up unused images..."
@@ -193,7 +203,7 @@ jobs:
         docker ps -a
         echo ""
         echo "Docker compose services status:"
-        cd ~/ghost && docker compose -f docker-compose.staging.yml ps
+        cd ~/ghost && docker-compose -f docker-compose.staging.yml ps
         echo ""
         echo "Checking if port 80 is listening:"
         sudo netstat -tlnp | grep :80 || echo "Port 80 not listening"
@@ -216,7 +226,7 @@ jobs:
         echo "❌ Health check failed. Getting more diagnostics..."
         ssh -o StrictHostKeyChecking=no -i key_staging.pem ${STAGING_SSH_USER}@${STAGING_HOST} <<'EOS'
         echo "=== Container logs ==="
-        cd ~/ghost && docker compose -f docker-compose.staging.yml logs --tail=50
+        cd ~/ghost && docker-compose -f docker-compose.staging.yml logs --tail=50
         EOS
         exit 1
 
@@ -236,7 +246,13 @@ jobs:
       run: |
         echo "${PROD_SSH_KEY}" | tr -d '\r' > key_prod.pem
         chmod 600 key_prod.pem
+
+        # Create ghost directory on production server
+        ssh -o StrictHostKeyChecking=no -i key_prod.pem ${PROD_SSH_USER}@${PROD_HOST} "mkdir -p ~/ghost"
+
+        # Copy required files to production server
         scp -i key_prod.pem -o StrictHostKeyChecking=no deploy/docker-compose.production.yml ${PROD_SSH_USER}@${PROD_HOST}:~/ghost/docker-compose.production.yml
+        scp -i key_prod.pem -o StrictHostKeyChecking=no config.production.json ${PROD_SSH_USER}@${PROD_HOST}:~/ghost/config.production.json
         ssh -o StrictHostKeyChecking=no -i key_prod.pem ${PROD_SSH_USER}@${PROD_HOST} <<'EOS'
         set -euo pipefail
 
@@ -301,13 +317,13 @@ jobs:
         export AWS_ACCOUNT_ID="$ACCOUNT_ID"
 
         echo "Pulling images..."
-        docker compose -f docker-compose.production.yml pull
+        docker-compose -f docker-compose.production.yml pull
 
         echo "Starting containers..."
-        docker compose -f docker-compose.production.yml up -d
+        docker-compose -f docker-compose.production.yml up -d
 
         echo "Checking container status..."
-        docker compose -f docker-compose.production.yml ps
+        docker-compose -f docker-compose.production.yml ps
         docker ps -a
 
         echo "Cleaning up unused images..."
