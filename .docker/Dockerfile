@@ -1,24 +1,22 @@
 # --------------------
-# Ghost CMS Production Build
+# Minimal Ghost Production Image
 # --------------------
 
-# Use official Ghost image as base
 FROM ghost:5-alpine
 
-# Switch to root to install packages and copy files
+# Switch to root for configuration
 USER root
 
-# Update packages for security and install curl for healthcheck
+# Update packages and install curl for healthcheck  
 RUN apk update && apk upgrade && \
     apk add --no-cache curl && \
     rm -rf /var/cache/apk/*
 
-# Copy Ghost configuration with proper ownership
+# Copy custom configuration
 COPY --chown=node:node config.production.json /var/lib/ghost/config.production.json
 
-# Ensure content directories exist with proper permissions
-RUN mkdir -p /var/lib/ghost/content && \
-    chown -R node:node /var/lib/ghost/content
+# Ensure proper permissions on content directory
+RUN chown -R node:node /var/lib/ghost/content
 
 # Switch back to node user for security
 USER node
@@ -26,11 +24,9 @@ USER node
 # Set working directory
 WORKDIR /var/lib/ghost
 
-# Expose Ghost's port
+# Expose Ghost port
 EXPOSE 2368
 
-# Enhanced healthcheck for production readiness
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:2368/ghost/api/v4/admin/site/ || exit 1
-
-# Use default Ghost entrypoint and command
+    CMD curl -f http://localhost:2368 || exit 1
