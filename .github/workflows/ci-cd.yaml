@@ -15,8 +15,8 @@ env:
   APP_NAME: ghost-app
   AWS_REGION: us-east-1
   ECR_REPO: ghost-app
-  # SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-  # SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 jobs:
   prepare:
@@ -33,24 +33,28 @@ jobs:
         echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
         echo "image_tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-  # sonarqube:
-  #   name: SonarQube Analysis
-  #   needs: prepare
-  #   runs-on: [ self-hosted, devops-runner ]
-  #   timeout-minutes: 10
-  #   steps:
-  #   - uses: actions/checkout@v4
-  #     with:
-  #       fetch-depth: 1
-  #   - name: SonarQube Scan
-  #     uses: sonarsource/sonarqube-scan-action@v2
-  #     with:
-  #       args: >
-  #         -Dsonar.projectKey=ghost-app -Dsonar.sources=ghost,apps -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/** -Dsonar.scanner.skipUnchanged=true -Dsonar.scanner.skipUnchangedFiles=true -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+  sonarqube:
+    name: SonarQube Analysis
+    needs: prepare
+    runs-on: [ self-hosted, devops-runner ]
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # Fetch more history for better incremental analysis
+        fetch-depth: 0
+    - name: SonarQube Scan with Incremental Analysis
+      uses: sonarsource/sonarqube-scan-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      with:
+        args: >
+          -Dsonar.projectKey=ghost-app -Dsonar.sources=ghost,apps -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**,**/build/**,**/public/**,**/*.min.js,**/*.bundle.js -Dsonar.scanner.skipUnchanged=true -Dsonar.scanner.skipUnchangedFiles=true -Dsonar.scm.provider=git -Dsonar.pullrequest.branch=${{ github.head_ref }} -Dsonar.pullrequest.base=${{ github.base_ref }} -Dsonar.pullrequest.key=${{ github.event.number }} -Dsonar.branch.name=${{ github.ref_name }} -Dsonar.newCode.referenceBranch=main -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300 -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
   build_push:
     name: Build & Push Image
-    needs: prepare
+    needs: [ prepare, sonarqube ]
     runs-on: [ self-hosted, devops-runner ]
     env:
       IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
