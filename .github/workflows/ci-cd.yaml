@@ -76,14 +76,19 @@ jobs:
         docker pull "${REPO_URI}:latest" || true
         docker tag  "${REPO_URI}:latest" "${REPO_URI}:previous" || true
         docker push "${REPO_URI}:previous" || true
-    - name: Build and Push with Cache
+    - name: Set up Docker Buildx
       run: |
+        # Create or reuse builder instance
         docker buildx create --name ci-builder --use --driver docker-container || true
         docker buildx inspect --bootstrap
+    - name: Build and Push Ghost Image
+      run: |
+        # Build with full caching enabled for optimal performance
         docker buildx build \
           --file .docker/Dockerfile \
           --cache-from=type=registry,ref=${REPO_URI}:buildcache \
           --cache-to=type=registry,ref=${REPO_URI}:buildcache,mode=max \
+          --platform linux/amd64 \
           -t ${REPO_URI}:latest \
           -t ${REPO_URI}:${IMAGE_TAG} \
           --push \
