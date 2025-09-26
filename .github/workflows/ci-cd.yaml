@@ -43,14 +43,14 @@ jobs:
       with:
         # Fetch more history for better incremental analysis
         fetch-depth: 0
-    - name: SonarQube Scan with Incremental Analysis
+    - name: SonarQube Scan (Community Edition)
       uses: sonarsource/sonarqube-scan-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       with:
         args: >
-          -Dsonar.projectKey=ghost-app -Dsonar.sources=ghost,apps -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**,**/build/**,**/public/**,**/*.min.js,**/*.bundle.js -Dsonar.scanner.skipUnchanged=true -Dsonar.scanner.skipUnchangedFiles=true -Dsonar.scm.provider=git -Dsonar.pullrequest.branch=${{ github.head_ref }} -Dsonar.pullrequest.base=${{ github.base_ref }} -Dsonar.pullrequest.key=${{ github.event.number }} -Dsonar.branch.name=${{ github.ref_name }} -Dsonar.newCode.referenceBranch=main -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300 -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+          -Dsonar.projectKey=ghost-app -Dsonar.sources=ghost,apps -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**,**/build/**,**/public/**,**/*.min.js,**/*.bundle.js -Dsonar.scanner.skipUnchanged=true -Dsonar.scanner.skipUnchangedFiles=true -Dsonar.scm.provider=git -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300 -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
   build_push:
     name: Build & Push Image
