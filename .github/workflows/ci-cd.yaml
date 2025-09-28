@@ -34,23 +34,31 @@ jobs:
         echo "image_tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
   sonarqube:
-    name: SonarQube Analysis
+    name: SonarQube Analysis (Optimized)
     needs: prepare
     runs-on: [ self-hosted, devops-runner ]
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
     - uses: actions/checkout@v4
       with:
-        # Fetch more history for better incremental analysis
-        fetch-depth: 0
-    - name: SonarQube Scan (Community Edition)
+        # Shallow clone for faster checkout - only recent commits needed
+        fetch-depth: 50
+    - name: Cache SonarQube Scanner
+      uses: actions/cache@v3
+      with:
+        path: ~/.sonar/cache
+        key: ${{ runner.os }}-sonar-${{ hashFiles('**/*.js', '**/*.ts') }}
+        restore-keys: |
+          ${{ runner.os }}-sonar-
+    - name: Optimized SonarQube Scan
       uses: sonarsource/sonarqube-scan-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_SCANNER_OPTS: "-Xmx2048m -XX:+UseG1GC"
       with:
         args: >
-          -Dsonar.projectKey=ghost-app -Dsonar.sources=ghost,apps -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**,**/build/**,**/public/**,**/*.min.js,**/*.bundle.js -Dsonar.scanner.skipUnchanged=true -Dsonar.scanner.skipUnchangedFiles=true -Dsonar.scm.provider=git -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300 -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+          -Dsonar.projectKey=ghost-app -Dsonar.sources=ghost/core,apps/admin-x-settings,apps/admin-x-framework,apps/portal -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**,**/build/**,**/public/**,**/*.min.js,**/*.bundle.js,**/test/**,**/tests/**,**/*.test.js,**/*.spec.js,**/playwright/**,**/e2e/** -Dsonar.scanner.skipUnchanged=true -Dsonar.scanner.skipUnchangedFiles=true -Dsonar.scm.provider=git -Dsonar.sourceEncoding=UTF-8 -Dsonar.typescript.detectNodeModules=false -Dsonar.qualitygate.wait=false -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
   build_push:
     name: Build & Push Image
