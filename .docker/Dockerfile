@@ -15,6 +15,22 @@ RUN apk update && apk upgrade && \
 # Copy custom configuration
 COPY --chown=node:node config.production.json /var/lib/ghost/config.production.json
 
+# Create version info file for deployment verification
+ARG BUILD_DATE
+ARG GIT_COMMIT  
+ARG BUILD_VERSION
+RUN echo "🚀 Ghost Application Version Info" > /var/lib/ghost/version.txt && \
+    echo "=================================" >> /var/lib/ghost/version.txt && \
+    echo "Build Date: ${BUILD_DATE:-unknown}" >> /var/lib/ghost/version.txt && \
+    echo "Git Commit: ${GIT_COMMIT:-unknown}" >> /var/lib/ghost/version.txt && \
+    echo "Build Version: ${BUILD_VERSION:-unknown}" >> /var/lib/ghost/version.txt && \
+    echo "Image Built: $(date)" >> /var/lib/ghost/version.txt && \
+    echo "=================================" >> /var/lib/ghost/version.txt && \
+    # Make version.txt accessible via HTTP by copying to content directory
+    mkdir -p /var/lib/ghost/content/data && \
+    cp /var/lib/ghost/version.txt /var/lib/ghost/content/data/version.txt && \
+    chown -R node:node /var/lib/ghost/version.txt /var/lib/ghost/content/data
+
 # Ensure proper permissions on content directory
 RUN chown -R node:node /var/lib/ghost/content
 

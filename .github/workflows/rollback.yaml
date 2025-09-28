@@ -55,5 +55,9 @@ jobs:
           echo ">>> Checking rollback status..."
           docker-compose -f ${COMPOSE_FILE} ps
           
+          echo ">>> Verifying rollback version..."
+          CONTAINER_NAME=\$(docker-compose -f ${COMPOSE_FILE} ps --services | head -n1)
+          docker-compose -f ${COMPOSE_FILE} exec -T \$CONTAINER_NAME cat /var/lib/ghost/version.txt || echo "Version file not found"
+          
           echo ">>> Rollback complete!"
         EOF

@@ -34,7 +34,7 @@ jobs:
         echo "image_tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
   sonarqube:
-    name: SonarQube Analysis (Optimized)
+    name: SonarQube Analysis
     needs: prepare
     runs-on: [ self-hosted, devops-runner ]
     timeout-minutes: 10
@@ -89,16 +89,29 @@ jobs:
         # Create or reuse builder instance
         docker buildx create --name ci-builder --use --driver docker-container || true
         docker buildx inspect --bootstrap
-    - name: Build and Push Ghost Image
+    - name: Build and Push Ghost Image with Version Info
       run: |
-        # Build with full caching enabled for optimal performance
+        # Get build information for version tracking
+        BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+        GIT_COMMIT=$(echo "${GITHUB_SHA}" | cut -c1-7)
+        BUILD_VERSION="v${GITHUB_RUN_NUMBER}-${GIT_COMMIT}"
+
+        echo "Building version: ${BUILD_VERSION}"
+        echo "Build date: ${BUILD_DATE}"
+        echo "Git commit: ${GIT_COMMIT}"
+
+        # Build with version information and full caching
         docker buildx build \
           --file .docker/Dockerfile \
+          --build-arg BUILD_DATE="${BUILD_DATE}" \
+          --build-arg GIT_COMMIT="${GIT_COMMIT}" \
+          --build-arg BUILD_VERSION="${BUILD_VERSION}" \
           --cache-from=type=registry,ref=${REPO_URI}:buildcache \
           --cache-to=type=registry,ref=${REPO_URI}:buildcache,mode=max \
           --platform linux/amd64 \
           -t ${REPO_URI}:latest \
           -t ${REPO_URI}:${IMAGE_TAG} \
+          -t ${REPO_URI}:${BUILD_VERSION} \
           --push \
           .
   deploy_staging:
@@ -195,6 +208,9 @@ jobs:
         docker-compose -f docker-compose.staging.yml ps
         docker ps -a
 
+        echo "=== Deployment Version Info ==="
+        docker-compose -f docker-compose.staging.yml exec -T ghost-staging cat /var/lib/ghost/version.txt || echo "Version file not found"
+
         echo "Cleaning up unused images..."
         docker image prune -f
         EOS
@@ -232,6 +248,11 @@ jobs:
           echo "Attempt $i => HTTP $code"
           if [ "$code" = "200" ]; then 
             echo "✅ Staging server is healthy!"
+            
+            # Get version information via HTTP
+            echo "=== Deployed Version Info ==="
+            curl -s "${{ secrets.STAGING_HEALTH_URL }}/content/data/version.txt" 2>/dev/null || echo "Version endpoint not accessible via HTTP"
+            
             exit 0
           elif [ "$code" = "000" ]; then
             echo "⚠️ Connection refused - checking server status..."
