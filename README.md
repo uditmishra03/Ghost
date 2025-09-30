@@ -330,9 +330,11 @@ modules:
     prober: http
     timeout: 5s
     http:
-      valid_http_versions: [ "HTTP/1.1", "HTTP/2" ]
-      valid_status_codes: ['2xx']
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 201, 202, 203, 204, 205, 206, 207, 208, 226]
       method: GET
+      follow_redirects: true
+      preferred_ip_protocol: "ip4"
 ```
 
 **Systemd Service**
@@ -362,20 +364,33 @@ sudo mv alertmanager-0.27.0.linux-amd64 /usr/local/alertmanager
 ## alertmanager.yml
 
 ```yaml
+global:
+  slack_api_url: 'YOUR_SLACK_WEBHOOK_URL_HERE'
+
 route:
-  receiver: "slack"
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'slack-notifications'
 
 receivers:
-  - name: "slack"
+  - name: 'slack-notifications'
     slack_configs:
-      - send_resolved: true
-        channel: "<slack channel name>"
-        username: "PrometheusBot"
-        api_url: "<slack channel webhook>"
-        text: >
-          *Alert:* {{ .CommonAnnotations.summary }}
-          *Description:* {{ .CommonAnnotations.description }}
-          *Severity:* {{ .CommonLabels.severity }}
+      - channel: '#new-channel'  # Your Slack channel name
+        username: 'Ghost-PrometheusBot'
+        title: 'Ghost Monitoring Alert'
+        title_link: 'http://localhost:9090'
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Instance:* {{ .Labels.instance }}
+          *Status:* {{ .Status }}
+          {{ end }}
+        send_resolved: true
 ```
 
 **Systemd Service**
